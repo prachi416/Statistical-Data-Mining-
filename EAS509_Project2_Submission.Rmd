@@ -1,0 +1,394 @@
+---
+title: "EAS509_Project2"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import libraries
+
+```{r}
+suppressWarnings({
+library(readxl)
+library(zoo)
+library(stats)
+library(tseries)
+library(randomForest)
+library(forecast)})
+```
+
+## 1. Save the data and analyse the missing values.
+
+```{r}
+oil_data <- read_excel("oil.xlsx",sheet=1, skip = 1, col_names = FALSE)
+
+head(oil_data)
+
+# Calculate the number of missing values in each column
+missing_values_count <- colSums(is.na(oil_data))
+
+# Print column names and the number of missing values
+for (i in seq_along(missing_values_count)) {
+  cat("Column:", names(missing_values_count)[i], "- Missing values:", missing_values_count[i], "\n")
+}
+```
+
+
+Check data type of columns before plotting.
+
+```{r}
+colnames(oil_data) <- c("date", "dcoilwtico")
+
+# Check the types of columns
+column_types <- sapply(oil_data, class)
+
+# Print the types of columns
+print(column_types)
+```
+
+## 2. Plot the time series with missing values
+
+```{r}
+# Plot the data using indices
+plot(oil_data$date, oil_data$dcoilwtico, type = "l", 
+     xlab = "Date", ylab = "Crude Oil Price", 
+     main = "Crude Oil Time Series Plot")
+
+```
+
+## 3. Using spline interpolation to impute missing values
+
+```{r}
+# Replace missing values with NA to prepare data for spline interpolation
+missing_values <- is.na(oil_data$dcoilwtico)
+oil_data$dcoilwtico[missing_values] <- NA
+oil_data$dcoilwtico[missing_values]
+```
+
+## 4. Plot the time series with imputed values.
+
+```{r}
+if(is.na(oil_data$dcoilwtico[1])) {
+  # Impute the first missing value with the value following it
+  oil_data$dcoilwtico[1] <- oil_data$dcoilwtico[2]
+}
+
+oil_zoo <- zoo(oil_data$dcoilwtico, order.by = 1:nrow(oil_data))
+  
+# Apply spline interpolation
+oil_data$dcoilwtico <- na.approx(oil_zoo, na.rm = FALSE)
+
+# Plot the new time series
+plot(oil_data$date, oil_data$dcoilwtico, 
+     type = "l", xlab = "Date", ylab = "Crude Oil Price", 
+     main = "Crude Oil Time Series Plot with Spline Interpolation")
+```
+
+
+Trend: From early 2014 until mid-2014, oil prices remained relatively stable, reaching their highest values of 90-110 throughout this period. However, starting from mid-2014, there was a significant decrease in oil prices, which continued without recovery until the end of 2017. Another notable drop occurred around mid-2015, leading to a continued decline in prices until 2016, marking the period of the lowest oil prices. Following this, prices began to rise again from 2016, but only reached levels below those seen in 2015. Despite this increase, prices remained relatively stable thereafter, showing minimal fluctuations.
+
+Seasonality: From the above graph, we cannpt comment on the seasonality of oil prices. The oil prices are influenced by a number of factors other than the date and so even if the data maybe seasonal, we cannot conclude it from this plot.
+
+
+## 5.1 ETS Models
+
+### 1. Additive Error, Additive Trend, Additive Seasonality (A, A, A) model
+
+```{r}
+oil_data_ts <- ts(oil_data$dcoilwtico, frequency =12 )
+
+ets_model_AAA <- ets(oil_data_ts, model = "AAA")
+summary(ets_model_AAA)
+```
+### 2.Multiplicative Error, Additive Trend, Additive Seasonality (M, A, A) model
+
+```{r}
+ets_model_MAA <- ets(oil_data_ts, model = "MAA")
+summary(ets_model_MAA)
+```
+
+### 3.Multiplicative Error, Additive Trend, Multiplicative Seasonality (M, A, M) model
+```{r}
+ets_model_MAM <- ets(oil_data_ts, model = "MAM")
+summary(ets_model_MAM)
+```
+
+The successful fitting of the Additive Error, Additive Trend, Additive Seasonality (A, A, A) model, and two Multiplicative models (M, A, A) and (M, A, M) suggests that the dataset exhibits both additive and multiplicative components in error, trend, and seasonality.
+Additive Error, Additive Trend, Additive Seasonality (A, A, A) model:
+- With a high level smoothing parameter (alpha) of 0.9469, the model places significant weight on recent observations, indicating a strong responsiveness to short-term fluctuations. 
+- The low trend smoothing parameter (beta) of 0.0216 suggests a relatively slow adaptation to longer-term trends
+- The AAA model's accuracy metrics further support its performance, with low error measures including a RMSE of 1.1746 and MAE of 0.8922, indicating close alignment between predicted and actual values on the training set.
+- The AIC, AICc, and BIC values of 9073.457, 9074.028, and 9165.332, respectively, indicate the model's goodness-of-fit and complexity. Lower values suggest better fit with lower complexity, with AICc penalizing more for model complexity.
+
+Multiplicative Error, Additive Trend, Additive Seasonality (M, A, A) model
+- The ETS(M, A, A) model presents different characteristics compared AAA model.
+- The smoothing parameters indicate a similar emphasis on recent observations with a high alpha of 0.9362 but a much lower beta of 0.0071, suggesting a slower adaptation to longer-term trends
+- The sigma value of 0.0221 indicates relatively low variability in the error term
+- The AIC, AICc, and BIC values of 9463.493, 9464.064, and 9555.367 suggest poorer fit and higher complexity as compared to the AAA model
+- While the model may adequately capture the data's patterns, it might be relatively more complex than necessary, emphasizing the importance of considering model complexity alongside goodness-of-fit metrics.
+
+Multiplicative Error, Additive Trend, Multiplicative Seasonality (M, A, M) model
+- The ETS(M, Ad, M) model demonstrates a mix of additive and multiplicative components in error, trend, and seasonality, similar to the ETS(M, Ad, A) model
+- The smoothing parameters indicate a relatively high alpha of 0.936, emphasizing recent observations
+- A moderate beta of 0.0086, implies a slower adaptation to longer-term trends
+- The seasonal smoothing parameter (gamma) remains minimal at 1e-04, suggests limited seasonal variation influence
+- The sigma value of 0.0221 indicates low variability in the error term
+- AIC, AICc, and BIC values of 9466.895, 9467.466, and 9558.770, respectively, are higher than the previous models, suggesting a slightly poorer fit and higher complexity
+
+Comparision and conclusion based on ETS models:
+The three exponential smoothing models reveal a mix of additive and multiplicative components in error, trend, and seasonality. 
+The AAA model stands out with its strong responsiveness to short-term fluctuations (alpha: 0.9469) and low error metrics (RMSE: 1.1746, MAE: 0.8922). 
+Its lower AIC, AICc, and BIC values (9073.457, 9074.028, 9165.332) indicate better fit with lower complexity, suggesting it's the most suitable for forecasting OIL dataset's predominantly additive nature
+
+## 5.2 Holt-Winters Models
+
+```{r}
+# Convert to time series object specifying the frequency
+oil_data_ts_hw <- ts(oil_data_ts, frequency = 365)
+
+# Apply Holt-Winters model - try both 'additive' and 'multiplicative' to see which fits better
+hw_model_add <- HoltWinters(oil_data_ts_hw, seasonal = "additive")
+hw_model_mult <- HoltWinters(oil_data_ts_hw, seasonal = "multiplicative")
+
+# Check the model fit
+summary(hw_model_add)
+summary(hw_model_mult)
+
+# Plot the original data and the fitted values for additive model
+plot(hw_model_add, main = "Holt-Winters Filtering - Additive Model")
+
+# Plot the original data and the fitted values for multiplicative model
+plot(hw_model_mult, main = "Holt-Winters Filtering - Multiplicative Model")
+
+# Forecast future values using the additive model# better model
+forecast_hw_add <- forecast(hw_model_add, h = 20)
+plot(forecast_hw_add, main = "Forecasts from Holt-Winters - Additive Model")
+
+# Forecast future values using the multiplicative model
+forecast_hw_mult <- forecast(hw_model_mult, h = 20)
+plot(forecast_hw_mult, main = "Forecasts from Holt-Winters - Multiplicative Model")
+```
+
+The visual inspection of the Holt-Winters filtering for both models indicates that each could adequately capture the underlying patterns in the data. The additive model tends to be preferred when seasonal variations are roughly constant throughout the series, while the multiplicative model is suited for when seasonal variations change proportionally with the level of the time series.
+
+The Holt-Winters seasonal analysis of the oil prices using both additive and multiplicative approaches has shown that the time series can be modeled to reasonably forecast future prices. Given the visual fit and hypothetical residual checks, either model could be appropriate depending on the seasonal characteristics of the data.
+
+## 6. Suggest suitable models for the data
+
+### 1. ARIMA Model
+
+```{r}
+time_series <- oil_data$dcoilwtico
+# Plot the ACF
+acf(time_series, main = "Autocorrelation Function (ACF) of Crude Oil Price")
+```
+
+At lag 0, the ACF value crosses the significant threshold and so p=0.
+
+```{r}
+# Do ADF test again on the time series
+adf_result <- adf.test(time_series)
+print(adf_result)
+```
+
+The p-value is greater than 0.05, and so we can say that the time series is not stationary.
+
+```{r}
+# Perform differencing
+differenced_series <- diff(time_series)
+```
+
+```{r}
+# Do ADF test again on the differenced series
+adf_result_diff1 <- adf.test(differenced_series)
+print(adf_result_diff1)
+```
+
+We have p-value<0.05 and so this time series is stationary. Therefore d=1.
+
+```{r}
+pacf_result <- pacf(time_series, main = "Partial Autocorrelation Function (PACF) of Crude Oil Price")
+```
+
+Since, the value of PACF crosses the set threshold at lag 1, we can say that the order of MA ia 1 i.e q=1.
+
+```{r}
+# Check the length of the oil_data
+num_rows <- length(time_series)
+print(num_rows)
+
+time_index <- 1:num_rows
+```
+
+```{r}
+# Subset the oil_data and fit the ARIMA(0,1,1) model
+oil_arima_subset <- time_series[1:1100]
+oil_arima_fit <- arima(oil_arima_subset, order = c(0, 1, 1))
+```
+
+```{r}
+# Predit the values at the end of the series
+oil_arima_forecast_values <- predict(oil_arima_fit, n.ahead = 118)$pred
+```
+
+```{r}
+oil_arima_forecast_se <- sqrt(predict(oil_arima_fit, n.ahead = 118)$se)
+
+# Calculate confidence interval limits
+upper_limit <- oil_arima_forecast_values + 1.96 * oil_arima_forecast_se
+lower_limit <- oil_arima_forecast_values - 1.96 * oil_arima_forecast_se
+
+# Plot the time series along with the forecasts
+plot(time_index, time_series, type = "l", ylim = c(min(time_series) - 2, max(time_series) + 2),
+xlab = "Time", ylab = "Value", main = "ARIMA(0,1,1) Process with Forecasts")
+points(time_index[1101:1218], time_series[1101:1218], col = "blue", pch = 10, cex = 0.1)
+
+# Add the 95% forecast limits to the plot
+lines(c(time_index[1101:1218], rev(time_index[1101:1218])), c(lower_limit, rev(upper_limit)), col = "orange", lty = 2)
+
+lines(c(time_index[1100], time_index[1101:1218]), c(time_series[1100], oil_arima_forecast_values), col = "red")
+points(time_index[1101:1218], oil_arima_forecast_values, col = "red", pch = 10, cex = 0.1)
+
+```
+Find RMSE. 
+
+```{r}
+# Calculate residuals
+actual_values <- time_series[1101:1218]
+residuals <- actual_values - oil_arima_forecast_values
+print(length(actual_values))
+print(length(oil_arima_forecast_values))
+
+# Calculate RMSE
+rmse1 <- sqrt(mean(residuals^2))
+print(rmse1)
+```
+
+Analysing the fit
+
+```{r}
+residuals=residuals(oil_arima_fit)
+plot(residuals, type = "l", main = "Residuals of ARIMA(0,1,1) Model")
+```
+
+```{r}
+# Perform Ljung-Box test
+ljung_box_test <- Box.test(residuals, lag = 20, type = "Ljung-Box")
+print(ljung_box_test)
+```
+
+A high p-value suggests that the null hypothesis cannot be rejected, indicating absence of  autocorrelation in the residuals.
+
+```{r}
+# Shapiro-Wilk test for normality
+shapiro_test <- shapiro.test(residuals)
+print(shapiro_test)
+```
+
+A low p-value from the normality test suggests that the residuals are not normally distributed.
+
+
+### 2. Random forest
+
+```{r}
+# Confirm that oil_data doesn't contain any missing values
+missing_values_count <- colSums(is.na(oil_data))
+
+# Print column names and the number of missing values
+for (i in seq_along(missing_values_count)) {
+  cat("Column:", names(missing_values_count)[i], "- Missing values:", missing_values_count[i], "\n")
+}
+```
+
+
+```{r}
+set.seed(1)
+
+train_index <- sample(1:nrow(oil_data), 0.7 * nrow(oil_data))
+train_data <- oil_data[train_index, ]
+test_data <- oil_data[-train_index, ]
+
+# Train the Random Forest model
+rf_model <- randomForest(train_data$dcoilwtico ~ ., data = train_data, ntree=100)
+
+# Make predictions on the testing set
+predictions <- predict(rf_model, newdata = test_data)
+
+# Evaluate the model (calculate RMSE)
+actual_values <- test_data$dcoilwtico
+rf_rmse <- sqrt(mean((actual_values - predictions)^2))
+print(paste("RMSE for random forest model:", rf_rmse))
+```
+
+An RMSE (Root Mean Squared Error) of 28.93 for a random forest model applied to time series data like oil prices suggests that the model's predictions are, on average, approximately $28.93 away from the actual values. This indicates a moderate level of accuracy.
+
+Time series data often exhibit autocorrelation and seasonality, which can impact the model's performance. 
+
+
+
+# 7. checking model adequacy
+
+
+Residual Analysis and RMSE for ARIMA Model
+
+```{r}
+#ARIMA Model - RMSE Calculation
+print(paste("RMSE for ARIMA Model:", rmse1))
+
+```
+
+
+Residual Analysis and RMSE for Random Forest Model
+
+```{r}
+# Random Forest Model - RMSE Calculation
+print(paste("RMSE for Random Forest Model:", rf_rmse))
+
+```
+
+
+Residual Analysis and RMSE for ETS Models
+
+```{r}
+# ETS Model AAA - RMSE Calculation
+ets_aaa_res <- residuals(ets_model_AAA)
+ets_aaa_rmse <- sqrt(mean(ets_aaa_res^2))
+print(paste("RMSE for ETS AAA Model:", ets_aaa_rmse))
+
+```
+Residual Analysis and RMSE for Holt-Winters Models
+
+```{r}
+# Holt-Winters Additive Model - RMSE
+hw_add_res <- residuals(hw_model_add)
+hw_add_rmse <- sqrt(mean(hw_add_res^2))
+print(paste("RMSE for Holt-Winters Additive Model:", hw_add_rmse))
+
+
+
+# Holt-Winters Multiplicative Model -  RMSE
+hw_mult_res <- residuals(hw_model_mult)
+hw_mult_rmse <- sqrt(mean(hw_mult_res^2))
+print(paste("RMSE for Holt-Winters Multiplicative Model:", hw_mult_rmse))
+
+```
+
+
+# 8. Comparing all the Models
+
+
+```{r}
+# Summary of all model performances by RMSE
+print(paste("RMSE for ARIMA Model:", rmse1))
+print(paste("RMSE for Random Forest Model:", rf_rmse))
+print(paste("RMSE for ETS AAA Model:", ets_aaa_rmse))
+print(paste("RMSE for Holt-Winters Additive Model:", hw_add_rmse))
+print(paste("RMSE for Holt-Winters Multiplicative Model:", hw_mult_rmse))
+
+
+```
+The comparison of forecasting models shows a clear difference in their performance based on the Root Mean Square Error (RMSE) values. The Holt-Winters Multiplicative Model demonstrates superior accuracy with the lowest RMSE of 1.51363, indicating that it has the best fit among the models tested for the given dataset. This model benefits from considering both seasonal variations and the multiplicative effects, which can be particularly effective if the seasonal fluctuations are proportionally related to the level of the series.
+
+On the other hand, the Random Forest Model shows the highest RMSE of 28.9345, suggesting it is the least accurate for this forecasting task. This might be due to its nature as a non-linear and non-parametric model, which could be less effective in capturing the seasonal and trend components of time series data. The ARIMA model and the other variants of the Holt-Winters Model (Additive and ETS AAA) also show varying degrees of effectiveness, with RMSE values in a range indicating moderate to good performance but still trailing behind the Holt-Winters Multiplicative approach.

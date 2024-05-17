@@ -1,0 +1,373 @@
+---
+title: "eas509_project1"
+date: "2024-04-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Install required packages and libraries
+
+```{r}
+library(randomForest)
+library(factoextra)
+library(e1071)
+library(readxl)
+library(caret)
+library(rpart)
+library(class)
+library(pROC)
+```
+
+
+```{r}
+# Load the data, remove the first row and add new column names
+mine_data <- read_excel("Mine_Dataset.xls", sheet=2, col_names = FALSE)
+first_row <- read_excel("Mine_Dataset.xls", n_max = 1, col_names = FALSE)
+mine_data <- mine_data[-1, ]
+head(mine_data)
+```
+
+Removing the first row and add new column names
+Removing the first row and adding new column names
+
+```{r}
+mine_data <- mine_data[-1, ]
+new_col_names=c("voltage", "sensor_height", "soil_type", "mine_type")
+colnames(mine_data) <- new_col_names
+head(mine_data)
+```
+
+Below are the details regarding the naming
+
+Voltage (V) :Output voltage value of FLC sensor due to magnetic distortion High (H): The height of the sensor from the ground. Soil Type (S):6 different soil types depending on the moisture condition. Mine Type (M): Mine types commonly encountered on land. 5 different mine classes.
+
+```{r}
+dim(mine_data)
+```
+
+```{r}
+# Convert character types to numeric values
+mine_data$voltage <- as.numeric(mine_data$voltage)
+mine_data$sensor_height <- as.numeric(mine_data$sensor_height)
+mine_data$soil_type <- as.numeric(mine_data$soil_type)
+mine_data$mine_type <- as.numeric(mine_data$mine_type)
+str(mine_data)
+```
+
+## EDA
+```{r}
+#check for null values
+sum(is.na(mine_data))
+
+#summary statistics
+summary(mine_data)
+```
+
+```{r}
+#To view the distribution of each numeric variable
+hist(mine_data$voltage, main = "Histogram of Voltage", xlab = "Voltage")
+hist(mine_data$sensor_height, main = "Histogram of Sensor Height", 
+     xlab = "Sensor Height")
+
+# Frequency table and distribution of the target variable mine_type
+table(mine_data$mine_type)
+barplot(table(mine_data$mine_type), main = "Distribution of Mine Types", 
+        xlab = "Mine Type", ylab = "Frequency")
+```
+
+#### Outlier Detection
+
+```{r}
+boxplot(mine_data$voltage, main = "Boxplot of Voltage", ylab = "Voltage")
+#Presence of outliers
+
+boxplot(mine_data$sensor_height, main = "Boxplot of Sensor Height", 
+        ylab = "Sensor Height")
+# This boxplot of sensor height does not show any individual points above 
+# the upper whisker or below the lower whisker, which means there are no apparent 
+# outliers
+```
+
+
+#### Checking relationship between variables
+
+```{r}
+# Set the size of the plotting area
+par(mfrow = c(1, 1), mar = c(5, 1, 2, 1))
+plot(mine_data$voltage, mine_data$sensor_height, 
+     main = "Voltage vs. Sensor Height", xlab = "Voltage", 
+     ylab = "Sensor Height", pch = 19)
+
+# The scatter plot examining the relationship between voltage and sensor height 
+# reveals that there is no evident correlation between these two variables.
+# Sensor height values are recorded at discrete intervals. While there is 
+# considerable variation in voltage measurements at most sensor heights, there 
+# does not seem to be a consistent pattern linking voltage to sensor height.
+```
+
+
+#### Checking if there exists relationship between the target variables and numerical variables
+
+```{r}
+# Boxplot for voltage by mine type
+boxplot(voltage ~ mine_type, data = mine_data, main = "Voltage by Mine Type", 
+        xlab = "Mine Type", ylab = "Voltage")
+# It seems that as mine type increases, there may be a tendency for both the 
+# median voltage and the variability of voltage to increase. 
+# The outliers in each category suggest some voltage readings that are unusually 
+# high.
+
+# Boxplot for sensor height by mine type
+boxplot(sensor_height ~ mine_type, data = mine_data, 
+        main = "Sensor Height by Mine Type", xlab = "Mine Type", 
+        ylab = "Sensor Height")
+
+# Unlike voltage, sensor height does not show a clear trend as mine type 
+# increases.
+# All mine types from 1 to 4 have a similar range of sensor heights. 
+```
+
+#### Checking if there exists relationship between the target variables and categorical variables
+
+```{r}
+# Cross-tabulation with soil type
+table(mine_data$soil_type, mine_data$mine_type)
+# The cross-tabulation of soil type and mine type reveals a homogenous 
+# distribution, indicating no apparent pattern of specific soil types for any 
+# given mine type. Each mine type has a similar count across various soil types
+
+#checking if any correlation exist
+cor(mine_data[, c("voltage", "sensor_height", "soil_type","mine_type")])
+
+# These correlations suggest that there are no strong linear relationships 
+# between the variables in this dataset. 
+# The strongest relationship observed is a moderate negative correlation between 
+# voltage and sensor height. 
+```
+
+
+```{r}
+pairs(mine_data)
+```
+
+```{r}
+cor(mine_data)
+```
+
+```{r}
+plot(density(mine_data$voltage))
+plot(density(mine_data$sensor_height))
+plot(density(mine_data$soil_type))
+plot(density(mine_data$mine_type))
+```
+
+## MODELS
+
+### 1) PCA
+
+```{r}
+pca_result <- prcomp(mine_data[, c("voltage", "sensor_height", "soil_type", 
+                                   "mine_type")], center = TRUE, scale. = TRUE)
+summary(pca_result)
+```
+
+```{r}
+plot(pca_result$sdev^2 / sum(pca_result$sdev^2), xlab = "Principal Component",
+     ylab = "Proportion of Variance Explained", ylim = c(0, 0.4), type = 'b', 
+     main = "Proportion of Variance Explained")
+```
+
+Display the cumulative variance explained
+
+```{r}
+cumulative_variance_explained <- 
+  cumsum(pca_result$sdev^2 / sum(pca_result$sdev^2)) * 100
+plot(cumulative_variance_explained,type = 'b',
+     main= "Cumulative Proportion of Variance Explained")
+
+cumulative_variance_df <- data.frame(
+  Principal_Component = 1:length(cumulative_variance_explained),
+  Cumulative_Variance_Explained = cumulative_variance_explained
+)
+
+cumulative_variance_df
+```
+
+### 2) K-Means clustering
+
+```{r}
+scaled_data <- scale(mine_data[, -ncol(mine_data)])  
+# Assuming the last column is 'mine_type', a categorical variable
+fviz_nbclust(scaled_data, kmeans, method = "wss")
+```
+
+In the plot, the "elbow" point, where there is a noticeable shift in the slope of the curve, is identified at K=5. This point is used as a guideline for determining the most suitable number of clusters. Selecting 5 clusters helps achieve a balance between creating tightly grouped clusters and avoiding the risk of overfitting the model to the data. Therefore, based on this analysis, 5 clusters are deemed optimal for this dataset.
+Viewing the summary of number of clusters determined to be optimal
+
+```{r}
+k <- 5  
+# Perform k-mean clustering with voltage, sensor_height and soil_type
+km_result <- kmeans(scaled_data, centers = k, nstart = 25)
+print(km_result)
+```
+
+
+```{r}
+# Split the data into train and test sets
+set.seed(4)
+train_index <- createDataPartition(mine_data$mine_type, p = 0.8, list = FALSE)
+train_data <- mine_data[train_index, ]
+test_data <- mine_data[-train_index, ]
+
+# Convert mine_type to a factor variable
+train_data$mine_type <- as.factor(train_data$mine_type)
+test_data$mine_type <- as.factor(test_data$mine_type)
+```
+
+### 3) Random forest model
+
+```{r}
+rf_model <- randomForest(mine_type ~ ., data = train_data)
+rf_pred <- predict(rf_model, test_data)
+rf_accuracy <- mean(rf_pred == test_data$mine_type)
+print(paste("RandomForest Accuracy:", rf_accuracy))
+
+conf_matrix <- confusionMatrix(data = rf_pred, reference = test_data$mine_type)
+accuracy <- conf_matrix$overall['Accuracy']
+precision <- conf_matrix$byClass[, "Precision"]
+recall <- conf_matrix$byClass[, "Recall"]
+F1_score <- conf_matrix$byClass[, "F1"]
+
+# Calculate the average precision, recall, and F1-score
+avg_precision <- mean(precision, na.rm = TRUE)
+avg_recall <- mean(recall, na.rm = TRUE)
+avg_F1_score <- mean(F1_score, na.rm = TRUE)
+
+# Print the average precision, recall, and F1-score
+print(paste("Average Precision:", avg_precision))
+print(paste("Average Recall:", avg_recall))
+print(paste("Average F1-score:", avg_F1_score))
+```
+
+### 4) Naive bayes model
+
+```{r}
+nb_model <- naiveBayes(mine_type ~ ., data = train_data)
+nb_pred <- predict(nb_model, test_data, type = "class")
+nb_accuracy <- mean(nb_pred == test_data$mine_type)
+print(paste("Naive Bayes Accuracy:", nb_accuracy))
+
+conf_matrix <- confusionMatrix(data = nb_pred, reference = test_data$mine_type)
+accuracy <- conf_matrix$overall['Accuracy']
+precision <- conf_matrix$byClass[, "Precision"]
+recall <- conf_matrix$byClass[, "Recall"]
+F1_score <- conf_matrix$byClass[, "F1"]
+
+# Calculate the average precision, recall, and F1-score
+avg_precision <- mean(precision, na.rm = TRUE)
+avg_recall <- mean(recall, na.rm = TRUE)
+avg_F1_score <- mean(F1_score, na.rm = TRUE)
+
+# Print the average precision, recall, and F1-score
+print(paste("Average Precision:", avg_precision))
+print(paste("Average Recall:", avg_recall))
+print(paste("Average F1-score:", avg_F1_score))
+```
+
+### 5) Decision tree classification
+
+```{r}
+tree_model <- rpart(mine_type ~ ., data = train_data, method = "class")
+tree_pred <- predict(tree_model, test_data, type = "class")
+tree_accuracy <- mean(tree_pred == test_data$mine_type)
+
+conf_matrix <- confusionMatrix(data = tree_pred, reference = test_data$mine_type)
+accuracy <- conf_matrix$overall['Accuracy']
+precision <- conf_matrix$byClass[, "Precision"]
+recall <- conf_matrix$byClass[, "Recall"]
+F1_score <- conf_matrix$byClass[, "F1"]
+
+# Calculate the average precision, recall, and F1-score
+avg_precision <- mean(precision, na.rm = TRUE)
+avg_recall <- mean(recall, na.rm = TRUE)
+avg_F1_score <- mean(F1_score, na.rm = TRUE)
+
+# Print the average precision, recall, and F1-score
+print(paste("Decision Tree Accuracy:", tree_accuracy))
+print(paste("Average Precision:", avg_precision))
+print(paste("Average Recall:", avg_recall))
+print(paste("Average F1-score:", avg_F1_score))
+```
+
+### 6) k-Nearest Neighbors
+
+```{r}
+# Define the number of neighbors (k)
+k <- 5 
+knn_model <- knn(train = train_data[, -ncol(train_data)],  
+                 test = test_data[, -ncol(test_data)],    
+                 cl = train_data$mine_type,              
+                 k = k)                                  
+
+# Measure accuracy
+accuracy <- mean(knn_model == test_data$mine_type)
+print(paste("kNN Accuracy:", accuracy))
+
+# Calculate confusion matrix
+conf_matrix <- confusionMatrix(knn_model, test_data$mine_type)
+accuracy <- conf_matrix$overall['Accuracy']
+precision <- conf_matrix$byClass[, "Precision"]
+recall <- conf_matrix$byClass[, "Recall"]
+F1_score <- conf_matrix$byClass[, "F1"]
+
+# Calculate the average precision, recall, and F1-score
+avg_precision <- mean(precision, na.rm = TRUE)
+avg_recall <- mean(recall, na.rm = TRUE)
+avg_F1_score <- mean(F1_score, na.rm = TRUE)
+
+# Print the average precision, recall, and F1-score
+print(paste("Average Precision:", avg_precision))
+print(paste("Average Recall:", avg_recall))
+print(paste("Average F1-score:", avg_F1_score))
+```
+
+### 7) Support vector machines
+
+```{r}
+# Train the SVM model
+svm_model <- svm(mine_type ~ ., data = train_data, kernel = "radial", probability = TRUE)
+
+# Make predictions on the test data
+svm_pred <- predict(svm_model, test_data, probability = TRUE)
+conf_matrix <- confusionMatrix(data = svm_pred, reference = test_data$mine_type)
+
+# Calculate accuracy
+svm_accuracy <- mean(svm_pred == test_data$mine_type)
+print(paste("SVM Accuracy:", svm_accuracy))
+
+accuracy <- conf_matrix$overall['Accuracy']
+precision <- conf_matrix$byClass[, "Precision"]
+recall <- conf_matrix$byClass[, "Recall"]
+F1_score <- conf_matrix$byClass[, "F1"]
+
+# Calculate the average precision, recall, and F1-score
+avg_precision <- mean(precision, na.rm = TRUE)
+avg_recall <- mean(recall, na.rm = TRUE)
+avg_F1_score <- mean(F1_score, na.rm = TRUE)
+
+# Print the average precision, recall, and F1-score
+print(paste("Average Precision:", avg_precision))
+print(paste("Average Recall:", avg_recall))
+print(paste("Average F1-score:", avg_F1_score))
+
+svm_pred_prob <- attr(svm_pred, "probabilities")[, "3"]
+binary_response <- ifelse(test_data$mine_type == "3", 1, 0)
+roc_results <- roc(binary_response, svm_pred_prob)
+```
+
+
+
+
+
